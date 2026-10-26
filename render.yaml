@@ -1,0 +1,41 @@
+# Blueprint do Render (https://render.com) — publica a API em HTTPS (certificado TLS automático).
+# Render → New → Blueprint → selecione este repositório. Depois preencha as variáveis marcadas "sync: false".
+services:
+  - type: web
+    name: assinatura-digital-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI # string de conexão do MongoDB Atlas
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CSRF_SECRET
+        generateValue: true
+      - key: SERVER_KEY_SECRET # NÃO troque depois: cifra a chave do carimbo de tempo
+        generateValue: true
+      - key: CORS_ORIGINS # ex.: https://seu-usuario.github.io
+        sync: false
+      - key: APP_URL # ex.: https://seu-usuario.github.io/assinatura-digital
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SEED_ON_START
+        value: "true"
+      - key: SEED_PASSWORD
+        sync: false

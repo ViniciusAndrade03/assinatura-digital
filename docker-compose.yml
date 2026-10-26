@@ -1,0 +1,106 @@
+# Ambiente completo com políticas de segurança:
+#  - cada serviço em contêiner isolado, usuários NÃO-root, sistema de arquivos somente-leitura
+#  - todas as capabilities do Linux removidas (cap_drop: ALL) e no-new-privileges
+#  - banco de dados em rede interna, SEM porta exposta ao host, com autenticação e usuário de menor privilégio
+#  - limites de memória/CPU/processos contra DoS; segredos vindos do arquivo .env (fora do Git)
+#
+# Uso:  cp .env.example .env  (preencha os segredos)  →  docker compose up -d --build
+# Acesse: https://localhost:8443   ·   Caixa de e-mails de teste: http://localhost:8025
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  mongo:
+    <<: *hardening
+    image: mongo:7.0
+    # o entrypoint oficial precisa trocar de usuário (root → mongodb) na inicialização
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: assinatura
+      MONGO_APP_USER: ${MONGO_APP_USER}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD}
+    volumes:
+      - mongo-data:/data/db
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+    networks: [backend-net]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits: { memory: 1g, cpus: "1.0", pids: 200 }
+
+  backend:
+    <<: *hardening
+    build: ./backend
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    user: "node"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      MONGODB_URI: mongodb://${MONGO_APP_USER}:${MONGO_APP_PASSWORD}@mongo:27017/assinatura?authSource=assinatura
+      JWT_SECRET: ${JWT_SECRET}
+      CSRF_SECRET: ${CSRF_SECRET}
+      SERVER_KEY_SECRET: ${SERVER_KEY_SECRET}
+      CORS_ORIGINS: https://localhost:8443,http://localhost:3000
+      APP_URL: https://localhost:8443
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      MAIL_FROM: "Assinatura Digital <no-reply@empresa.local>"
+      SEED_ON_START: "true"
+      SEED_PASSWORD: ${SEED_PASSWORD}
+    depends_on:
+      mongo: { condition: service_healthy }
+    networks: [backend-net, frontend-net]
+    deploy:
+      resources:
+        limits: { memory: 512m, cpus: "1.0", pids: 100 }
+
+  frontend:
+    <<: *hardening
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: /api
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    ports:
+      - "8443:8443" # HTTPS
+      - "8080:8080" # HTTP (apenas redireciona para HTTPS)
+    depends_on: [backend]
+    networks: [frontend-net]
+    deploy:
+      resources:
+        limits: { memory: 128m, cpus: "0.5", pids: 50 }
+
+  mailpit: # servidor SMTP de testes para as notificações do Nodemailer
+    <<: *hardening
+    image: axllent/mailpit:latest
+    read_only: true
+    tmpfs: ["/tmp:size=32m"]
+    ports:
+      - "127.0.0.1:8025:8025" # interface web só no localhost
+    # backend-net: recebe SMTP da API · frontend-net: necessária para publicar a porta da interface web
+    networks: [backend-net, frontend-net]
+
+networks:
+  backend-net:
+    internal: true # sem acesso à internet; o banco nunca é exposto
+  frontend-net: {}
+
+volumes:
+  mongo-data:

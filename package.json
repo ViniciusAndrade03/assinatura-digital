@@ -1,0 +1,12 @@
+{
+  "name": "assinatura-digital",
+  "private": true,
+  "description": "N2 Segurança da Informação — Módulo de Assinatura Digital de Relatórios de Despesa",
+  "scripts": {
+    "test": "npm --prefix backend test",
+    "e2e": "node e2e/fluxo.e2e.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}
